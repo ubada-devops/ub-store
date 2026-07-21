@@ -1,4 +1,4 @@
-export type SessionRole = 'CEO' | 'CFO' | 'COO' | 'CTO' | 'DEV' | 'CLIENT' | 'CHAT';
+export type SessionRole = 'CEO' | 'CFO' | 'COO' | 'CTO' | 'CAIO' | 'CMO' | 'CSO' | 'DEV' | 'CLIENT' | 'CHAT';
 
 export interface ToastMessage {
   id: string;

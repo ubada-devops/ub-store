@@ -4,7 +4,7 @@ import {
   Wifi, HelpCircle, Key, Activity, ShieldCheck, 
   Settings, UserCheck, AlertOctagon, HelpCircle as HelpIcon,
   ChevronRight, ArrowRight, CornerDownRight, CheckCircle2,
-  FileText, Landmark, MessageSquare
+  FileText, Landmark, MessageSquare, Brain, TrendingUp, ShieldAlert
 } from 'lucide-react';
 import { SessionRole, ToastMessage } from '../types';
 import { supabase } from '../supabaseClient';
@@ -51,7 +51,22 @@ export const GlobalShell: React.FC<GlobalShellProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
-  const isCSuite = currentUser && ['CEO', 'CFO', 'COO', 'CTO'].includes(currentUser.role);
+  const getAlias = (role: SessionRole): string => {
+    switch(role) {
+      case 'CEO': return 'UB // CEO';
+      case 'CFO': return 'SAM // CFO';
+      case 'COO': return 'SAM // COO';
+      case 'CTO': return 'AMMAR // CTO';
+      case 'CAIO': return 'UB // CAIO';
+      case 'CMO': return 'UB // CMO';
+      case 'CSO': return 'UB // CSO';
+      case 'DEV': return 'UB_DEV_14';
+      case 'CLIENT': return 'CardioCare // Client';
+      case 'CHAT': return 'Anonymous Chat Hub';
+    }
+  };
+
+  const isCSuite = currentUser && ['CEO', 'CFO', 'COO', 'CTO', 'CAIO', 'CMO', 'CSO'].includes(currentUser.role);
 
   // System Time & Timezone update (Req #10)
   useEffect(() => {
@@ -185,17 +200,7 @@ export const GlobalShell: React.FC<GlobalShellProps> = ({
     }
   };
 
-  const getAlias = (role: SessionRole): string => {
-    switch(role) {
-      case 'CEO': return 'UB // CEO';
-      case 'CFO': return 'SAM // CFO';
-      case 'COO': return 'SAM // COO';
-      case 'CTO': return 'AMMAR // CTO';
-      case 'DEV': return 'UB_DEV_14';
-      case 'CLIENT': return 'CardioCare // Client';
-      case 'CHAT': return 'Anonymous Chat Hub';
-    }
-  };
+
 
   // Login view
   if (!isAuthenticated) {
@@ -306,6 +311,9 @@ export const GlobalShell: React.FC<GlobalShellProps> = ({
                       <option value="CFO">CFO (SAM / Finance lead)</option>
                       <option value="COO">COO (SAM / Operations lead)</option>
                       <option value="CTO">CTO (AMMAR / Tech lead)</option>
+                      <option value="CAIO">CAIO (Chief AI Officer)</option>
+                      <option value="CMO">CMO (Chief Marketing Officer)</option>
+                      <option value="CSO">CSO (Chief Security Officer)</option>
                     </select>
                   </div>
                 )}
@@ -419,7 +427,7 @@ export const GlobalShell: React.FC<GlobalShellProps> = ({
           {/* Role Switcher Selector Mock Panel (Req #9) */}
           {isCSuite && (
             <div className="hidden sm:flex items-center gap-1 bg-zinc-950/60 border border-zinc-900/60 p-0.5">
-              {(['CEO', 'CFO', 'COO', 'CTO', 'DEV', 'CLIENT', 'CHAT'] as SessionRole[]).map(role => (
+              {(['CEO', 'CFO', 'COO', 'CTO', 'CAIO', 'CMO', 'CSO', 'DEV', 'CLIENT', 'CHAT'] as SessionRole[]).map(role => (
                 <button
                   key={role}
                   onClick={() => {
@@ -449,6 +457,9 @@ export const GlobalShell: React.FC<GlobalShellProps> = ({
                 <option value="CFO">CFO (SAM)</option>
                 <option value="COO">COO (SAM)</option>
                 <option value="CTO">CTO (AMMAR)</option>
+                <option value="CAIO">CAIO (AI Systems)</option>
+                <option value="CMO">CMO (Marketing Growth)</option>
+                <option value="CSO">CSO (SecOps Portal)</option>
                 <option value="DEV">DEV (Anon)</option>
                 <option value="CLIENT">Client</option>
                 <option value="CHAT">Chat Hub</option>
@@ -615,6 +626,27 @@ export const GlobalShell: React.FC<GlobalShellProps> = ({
                   title="CTO Terminal (AMMAR)"
                 >
                   <UserCheck size={18} />
+                </button>
+                <button 
+                  onClick={() => { setActiveRole('CAIO'); addToast('CAIO workspace active.', 'info'); }}
+                  className={`p-2.5 rounded-sm transition-all hover:text-emerald-400 hover:bg-zinc-900/30 relative ${activeRole === 'CAIO' ? 'text-emerald-400 bg-zinc-900/50 border-r-2 border-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.1)]' : ''}`}
+                  title="CAIO Agent Control"
+                >
+                  <Brain size={18} />
+                </button>
+                <button 
+                  onClick={() => { setActiveRole('CMO'); addToast('CMO growth metrics console active.', 'info'); }}
+                  className={`p-2.5 rounded-sm transition-all hover:text-emerald-400 hover:bg-zinc-900/30 relative ${activeRole === 'CMO' ? 'text-emerald-400 bg-zinc-900/50 border-r-2 border-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.1)]' : ''}`}
+                  title="CMO Campaigns"
+                >
+                  <TrendingUp size={18} />
+                </button>
+                <button 
+                  onClick={() => { setActiveRole('CSO'); addToast('CSO security gateway active.', 'info'); }}
+                  className={`p-2.5 rounded-sm transition-all hover:text-emerald-400 hover:bg-zinc-900/30 relative ${activeRole === 'CSO' ? 'text-emerald-400 bg-zinc-900/50 border-r-2 border-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.1)]' : ''}`}
+                  title="CSO Intrusion Guard"
+                >
+                  <ShieldAlert size={18} />
                 </button>
               </>
             )}
