@@ -35,8 +35,11 @@ export const CEOPanel: React.FC<CEOPanelProps> = ({
   const activeClients = tasks.length;
   const totalDevPayout = tasks.filter(t => t.assignedDev !== 'Unassigned').length * 2800;
   const targetRevenue = 10000000; // 1 Crore
-  const currentRevenue = 6840000;
-  const revenuePercent = (currentRevenue / targetRevenue) * 100;
+  const currentRevenue = 6000000 + tasks.reduce((sum, t) => {
+    const val = t.tier === '₹4,999' ? 4999 : t.tier === '₹2,499' ? 2499 : 499;
+    return sum + val;
+  }, 0) * 200; // Scaled to reflect overall pipeline yield
+  const revenuePercent = Math.min((currentRevenue / targetRevenue) * 100, 100);
   const weeklyVelocity = 384615;
   const actualWeeklyRunRate = tasks.reduce((sum, t) => {
     const val = t.tier === '₹4,999' ? 4999 : t.tier === '₹2,499' ? 2499 : 499;

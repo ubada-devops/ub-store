@@ -8,6 +8,7 @@ import {
   STRIPE_RECON_RECORDS, FIRA_REMITTANCES, PARTNER_AFFILIATES, 
   PLACEMENT_COMMISSIONS, TRANSPORT_SUBSIDIES 
 } from '../data';
+import { supabase } from '../supabaseClient';
 
 interface CFOPanelProps {
   tasks: ProjectTask[];
@@ -38,7 +39,24 @@ export const CFOPanel: React.FC<CFOPanelProps> = ({
   }, 0) * 30;
   const weeklyDevPayout = tasks.filter(t => t.assignedDev !== 'Unassigned').length * 2800;
 
-  const handleReleasePayment = (escrowId: string) => {
+  const handleReleasePayment = async (escrowId: string) => {
+    const isPlaceholder = !import.meta.env.VITE_SUPABASE_URL || 
+                          import.meta.env.VITE_SUPABASE_URL === 'https://placeholder-project.supabase.co' ||
+                          import.meta.env.VITE_SUPABASE_ANON_KEY === 'placeholder-anon-key';
+
+    if (!isPlaceholder) {
+      try {
+        const { error } = await supabase
+          .from('escrows')
+          .update({ status: 'Released' })
+          .eq('id', escrowId);
+        if (error) throw error;
+      } catch (err: any) {
+        console.error('Error releasing escrow in Supabase:', err);
+        addToast('Failed to release escrow in database.', 'error');
+      }
+    }
+
     setEscrows(prev => prev.map(esc => {
       if (esc.id === escrowId) {
         addToast(`CFO Authorization: Milestone payout of ₹${esc.amount.toLocaleString()} disbursed.`, 'success');

@@ -6,6 +6,7 @@ import {
   Sliders, UserX, Coins, Globe, Landmark, Users, ArrowUpRight
 } from 'lucide-react';
 import { SessionRole } from '../types';
+import { supabase } from '../supabaseClient';
 
 interface Message {
   id: string;
@@ -107,6 +108,73 @@ export const AnonymousChat: React.FC<AnonymousChatProps> = ({
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, activeChannel]);
+
+  // Fetch messages from Supabase
+  useEffect(() => {
+    const isPlaceholder = !import.meta.env.VITE_SUPABASE_URL || 
+                          import.meta.env.VITE_SUPABASE_URL === 'https://placeholder-project.supabase.co' ||
+                          import.meta.env.VITE_SUPABASE_ANON_KEY === 'placeholder-anon-key';
+    if (isPlaceholder) return;
+
+    const fetchMessages = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('messages')
+          .select('*')
+          .eq('channel_id', activeChannel)
+          .order('timestamp', { ascending: true })
+          .limit(50);
+        if (data) {
+          setMessages(data.map(m => ({
+            id: m.id,
+            channel_id: m.channel_id,
+            sender_alias: m.sender_alias,
+            payload: m.payload,
+            timestamp: new Date(m.timestamp).getTime(),
+            isSystem: m.is_system
+          })));
+        }
+      } catch (e) {
+        console.error('Error fetching chat messages:', e);
+      }
+    };
+    fetchMessages();
+  }, [activeChannel]);
+
+  // Subscribe to Postgres changes for real-time messages
+  useEffect(() => {
+    const isPlaceholder = !import.meta.env.VITE_SUPABASE_URL || 
+                          import.meta.env.VITE_SUPABASE_URL === 'https://placeholder-project.supabase.co' ||
+                          import.meta.env.VITE_SUPABASE_ANON_KEY === 'placeholder-anon-key';
+    if (isPlaceholder) return;
+
+    const channel = supabase
+      .channel(`room-${activeChannel}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'messages',
+        filter: `channel_id=eq.${activeChannel}`
+      }, (payload) => {
+        const newMsg: Message = {
+          id: payload.new.id,
+          channel_id: payload.new.channel_id,
+          sender_alias: payload.new.sender_alias,
+          payload: payload.new.payload,
+          timestamp: new Date(payload.new.timestamp).getTime(),
+          isSystem: payload.new.is_system
+        };
+        setMessages(prev => {
+          if (prev.some(m => m.id === newMsg.id)) return prev;
+          return [...prev, newMsg].slice(-50);
+        });
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [activeChannel]);
 
   // Clean typing indicators simulation (Req #20)
   useEffect(() => {
@@ -258,7 +326,7 @@ export const AnonymousChat: React.FC<AnonymousChatProps> = ({
     return true; // Passed validation
   };
 
-  const handleSendMessage = (e: React.FormEvent) => {
+  const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputMessage.trim()) return;
 
@@ -290,24 +358,47 @@ export const AnonymousChat: React.FC<AnonymousChatProps> = ({
 
     setLastTransmittedPacket(packet);
 
-    // Save message locally (Supabase simulated stream)
-    const newMsg: Message = {
-      id: uuid,
-      channel_id: activeChannel,
-      sender_alias: chatSenderIdentity,
-      payload: inputMessage,
-      timestamp: Date.now()
-    };
+    const isPlaceholder = !import.meta.env.VITE_SUPABASE_URL || 
+                          import.meta.env.VITE_SUPABASE_URL === 'https://placeholder-project.supabase.co' ||
+                          import.meta.env.VITE_SUPABASE_ANON_KEY === 'placeholder-anon-key';
 
-    setMessages(prev => {
-      const updated = [...prev, newMsg];
-      return updated.slice(-50); // Sliding scale maximum 50 index (Req #15)
-    });
+    if (!isPlaceholder) {
+      try {
+        const { error } = await supabase.from('messages').insert([
+          {
+            channel_id: activeChannel,
+            sender_alias: chatSenderIdentity,
+            payload: inputMessage,
+            is_system: false
+          }
+        ]);
+        if (error) throw error;
+      } catch (err: any) {
+        console.error('Chat insert error:', err);
+        addToast('Failed to insert message into Supabase database.', 'error');
+      }
+    } else {
+      // Save message locally (fallback)
+      const newMsg: Message = {
+        id: uuid,
+        channel_id: activeChannel,
+        sender_alias: chatSenderIdentity,
+        payload: inputMessage,
+        timestamp: Date.now()
+      };
 
-    setPendingBatchCount(prev => prev + 1);
+      setMessages(prev => {
+        const updated = [...prev, newMsg];
+        return updated.slice(-50); // Sliding scale maximum 50 index (Req #15)
+      });
+
+      setPendingBatchCount(prev => prev + 1);
+    }
+
     setInputMessage('');
     addToast('Message transmitted over secure WebSocket.', 'success');
   };
+
 
   // Secure Document Attachment wrapper generator (Req #19)
   const handleAttachCode = () => {

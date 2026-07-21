@@ -6,6 +6,7 @@ import {
   BookOpen, LayoutGrid, Eye, Clock, ListChecks
 } from 'lucide-react';
 import { ProjectTask, LeadAssignment } from '../types';
+import { supabase } from '../supabaseClient';
 
 interface DeveloperPanelProps {
   tasks: ProjectTask[];
@@ -13,6 +14,7 @@ interface DeveloperPanelProps {
   leads: LeadAssignment[];
   setLeads: React.Dispatch<React.SetStateAction<LeadAssignment[]>>;
   addToast: (msg: string, type: 'success' | 'error' | 'warn' | 'info') => void;
+  currentUser: any;
 }
 
 export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({
@@ -20,7 +22,8 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({
   setTasks,
   leads,
   setLeads,
-  addToast
+  addToast,
+  currentUser
 }) => {
   const [activeTab, setActiveTab] = useState<'workbench' | 'deliveries'>('workbench');
 
@@ -63,12 +66,12 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({
     return `${h}:${m}:${s}`;
   };
 
-  // Filter tasks assigned to UB_DEV_14
-  const myTasks = tasks.filter(t => t.assignedDev === 'UB_DEV_14');
+  const devAlias = currentUser?.alias_mask || 'UB_DEV_14';
+  const myTasks = tasks.filter(t => t.assignedDev === devAlias);
   const taskCapacity = myTasks.length;
 
   // Claim Sprint from marketplace
-  const handleClaimSprint = (leadId: string) => {
+  const handleClaimSprint = async (leadId: string) => {
     if (taskCapacity >= 4) {
       addToast('Sprinting Limit Warning: Maximum weekly capacity (4 projects) achieved.', 'error');
       return;
@@ -86,17 +89,44 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({
       tier: lead.suggestedTier as any,
       stage: 'Development',
       description: `Claimed from lead marketplace. Standard payout: ${lead.value}.`,
-      assignedDev: 'UB_DEV_14',
+      assignedDev: devAlias,
       prsCount: 1,
       health: 'Stable'
     };
+
+    const isPlaceholder = !import.meta.env.VITE_SUPABASE_URL || 
+                          import.meta.env.VITE_SUPABASE_URL === 'https://placeholder-project.supabase.co' ||
+                          import.meta.env.VITE_SUPABASE_ANON_KEY === 'placeholder-anon-key';
+
+    if (!isPlaceholder) {
+      try {
+        const { error } = await supabase.from('tasks').insert([
+          {
+            id: claimedTask.id,
+            name: claimedTask.name,
+            client: claimedTask.client,
+            tier: claimedTask.tier,
+            stage: claimedTask.stage,
+            description: claimedTask.description,
+            assigned_dev_id: currentUser?.id,
+            assigned_dev_name: devAlias,
+            prs_count: claimedTask.prsCount,
+            health: claimedTask.health
+          }
+        ]);
+        if (error) throw error;
+      } catch (err: any) {
+        console.error('Error adding task to Supabase:', err);
+        addToast('Failed to claim task in database.', 'error');
+      }
+    }
 
     setTasks(prev => [...prev, claimedTask]);
     addToast(`Successfully claimed! ${lead.name} added to your workspace.`, 'success');
   };
 
   // Submit code for Ammar's validation
-  const handleSubmitReview = (e: React.FormEvent) => {
+  const handleSubmitReview = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedTaskToSubmit) {
       addToast('Please select a task to submit.', 'error');
@@ -107,10 +137,41 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({
       return;
     }
 
+    const taskToUpdate = tasks.find(t => t.id === selectedTaskToSubmit);
+    const updatedPrCount = taskToUpdate ? taskToUpdate.prsCount + 1 : 1;
+
+    const isPlaceholder = !import.meta.env.VITE_SUPABASE_URL || 
+                          import.meta.env.VITE_SUPABASE_URL === 'https://placeholder-project.supabase.co' ||
+                          import.meta.env.VITE_SUPABASE_ANON_KEY === 'placeholder-anon-key';
+
+    if (!isPlaceholder) {
+      try {
+        const { error: taskError } = await supabase
+          .from('tasks')
+          .update({ stage: 'QA', prs_count: updatedPrCount })
+          .eq('id', selectedTaskToSubmit);
+        if (taskError) throw taskError;
+
+        const { error: submissionError } = await supabase
+          .from('github_submissions')
+          .insert([
+            {
+              task_id: selectedTaskToSubmit,
+              repo_url: repoUrlInput,
+              submitted_by: currentUser?.id
+            }
+          ]);
+        if (submissionError) throw submissionError;
+      } catch (err: any) {
+        console.error('Error submitting code in Supabase:', err);
+        addToast('Failed to save code submission in database.', 'error');
+      }
+    }
+
     setTasks(prev => prev.map(t => {
       if (t.id === selectedTaskToSubmit) {
         addToast(`Codebase submitted. Notifying AMMAR_CTO for PR review validation.`, 'success');
-        return { ...t, stage: 'QA', prsCount: t.prsCount + 1 };
+        return { ...t, stage: 'QA', prsCount: updatedPrCount };
       }
       return t;
     }));

@@ -7,10 +7,11 @@ import {
   FileText, Landmark, MessageSquare
 } from 'lucide-react';
 import { SessionRole, ToastMessage } from '../types';
+import { supabase } from '../supabaseClient';
 
 interface GlobalShellProps {
   isAuthenticated: boolean;
-  onLogin: (token: string) => void;
+  onLogin: (token: string, role: SessionRole, profile: any) => void;
   onLogout: () => void;
   activeRole: SessionRole;
   setActiveRole: (role: SessionRole) => void;
@@ -19,6 +20,7 @@ interface GlobalShellProps {
   toasts: ToastMessage[];
   removeToast: (id: string) => void;
   addToast: (msg: string, type: 'success' | 'error' | 'warn' | 'info') => void;
+  currentUser: any;
   children: React.ReactNode;
 }
 
@@ -33,9 +35,14 @@ export const GlobalShell: React.FC<GlobalShellProps> = ({
   toasts,
   removeToast,
   addToast,
+  currentUser,
   children
 }) => {
-  const [magicToken, setMagicToken] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [selectedRole, setSelectedRole] = useState<SessionRole>('DEV');
+  const [isSignUp, setIsSignUp] = useState(false);
   const [localTime, setLocalTime] = useState('');
   const [utcTime, setUtcTime] = useState('');
   const [isMobileOpen, setIsMobileOpen] = useState(false);
@@ -43,6 +50,8 @@ export const GlobalShell: React.FC<GlobalShellProps> = ({
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
+
+  const isCSuite = currentUser && ['CEO', 'CFO', 'COO', 'CTO'].includes(currentUser.role);
 
   // System Time & Timezone update (Req #10)
   useEffect(() => {
@@ -70,18 +79,110 @@ export const GlobalShell: React.FC<GlobalShellProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!magicToken.trim()) {
-      addToast('Please enter a secure freelancer access key.', 'error');
+    if (!email.trim() || !password.trim()) {
+      addToast('Please enter both email and password.', 'error');
       return;
     }
+    
+    const isPlaceholder = !import.meta.env.VITE_SUPABASE_URL || 
+                          import.meta.env.VITE_SUPABASE_URL === 'https://placeholder-project.supabase.co' ||
+                          import.meta.env.VITE_SUPABASE_ANON_KEY === 'placeholder-anon-key';
+                          
+    if (isPlaceholder) {
+      setIsLoggingIn(true);
+      setTimeout(() => {
+        const dummyProfile = {
+          email: email,
+          full_name: fullName || email.split('@')[0],
+          role: selectedRole,
+          alias_mask: selectedRole === 'DEV' ? 'UB_DEV_14' : selectedRole === 'CLIENT' ? 'CardioCare // Client' : `UB // ${selectedRole}`
+        };
+        onLogin('demo-session-token', selectedRole, dummyProfile);
+        setIsLoggingIn(false);
+      }, 800);
+      addToast('Running in Demo/Offline fallback mode (No Supabase env detected).', 'warn');
+      return;
+    }
+
     setIsLoggingIn(true);
-    setTimeout(() => {
-      onLogin(magicToken);
+    try {
+      if (isSignUp) {
+        if (!fullName.trim()) {
+          addToast('Full name is required for registration.', 'error');
+          setIsLoggingIn(false);
+          return;
+        }
+        
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password,
+        });
+        
+        if (error) throw error;
+        if (data.user) {
+          const alias = selectedRole === 'DEV' 
+            ? `UB_DEV_${Math.floor(10 + Math.random() * 90)}` 
+            : selectedRole === 'CLIENT' 
+              ? `${fullName} // Client` 
+              : `UB // ${selectedRole}`;
+
+          const { error: profileError } = await supabase.from('profiles').insert([
+            {
+              id: data.user.id,
+              email,
+              full_name: fullName,
+              role: selectedRole,
+              alias_mask: alias
+            }
+          ]);
+          if (profileError) throw profileError;
+          
+          addToast('Registration successful! Accessing workspace...', 'success');
+          onLogin(data.session?.access_token || 'session-token', selectedRole, {
+            email,
+            full_name: fullName,
+            role: selectedRole,
+            alias_mask: alias
+          });
+        }
+      } else {
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+        if (error) throw error;
+        
+        if (data.user) {
+          const { data: profile, error: profileError } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', data.user.id)
+            .single();
+            
+          if (profileError) {
+            const alias = `UB_DEV_${Math.floor(10 + Math.random() * 90)}`;
+            const defaultProfile = {
+              id: data.user.id,
+              email: data.user.email || email,
+              full_name: email.split('@')[0],
+              role: 'DEV' as SessionRole,
+              alias_mask: alias
+            };
+            await supabase.from('profiles').insert([defaultProfile]);
+            onLogin(data.session?.access_token || 'session-token', 'DEV', defaultProfile);
+          } else {
+            onLogin(data.session?.access_token || 'session-token', profile.role as SessionRole, profile);
+          }
+        }
+      }
+    } catch (err: any) {
+      console.error(err);
+      addToast(err.message || 'Authentication failed.', 'error');
+    } finally {
       setIsLoggingIn(false);
-      setMagicToken('');
-    }, 1200);
+    }
   };
 
   const getAlias = (role: SessionRole): string => {
@@ -134,35 +235,94 @@ export const GlobalShell: React.FC<GlobalShellProps> = ({
                 </p>
               </div>
 
+              <div className="flex border-b border-zinc-800/80">
+                <button
+                  type="button"
+                  onClick={() => setIsSignUp(false)}
+                  className={`flex-1 pb-2 text-[10px] font-bold uppercase tracking-widest ${!isSignUp ? 'border-b-2 border-emerald-500 text-emerald-400' : 'text-zinc-500'}`}
+                >
+                  Log In
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsSignUp(true)}
+                  className={`flex-1 pb-2 text-[10px] font-bold uppercase tracking-widest ${isSignUp ? 'border-b-2 border-emerald-500 text-emerald-400' : 'text-zinc-500'}`}
+                >
+                  Register
+                </button>
+              </div>
+
               <form onSubmit={handleLoginSubmit} className="space-y-4">
-                <div className="space-y-1.5">
-                  <label className="text-[10px] text-zinc-500 uppercase tracking-widest block font-bold">Freelancer Token Hex</label>
-                  <div className="relative">
+                {isSignUp && (
+                  <div className="space-y-1">
+                    <label className="text-[9px] text-zinc-500 uppercase tracking-widest block font-bold">Full Name</label>
                     <input
-                      type="password"
-                      value={magicToken}
-                      onChange={(e) => setMagicToken(e.target.value)}
-                      placeholder="Enter magic credentials link (e.g. ub_dev_magic_14)..."
-                      className="w-full bg-zinc-950/80 border border-zinc-800/80 focus:border-emerald-500/60 text-emerald-400 font-mono text-xs px-4 py-3 outline-none transition-all pr-10 rounded-none placeholder:text-zinc-700 focus:shadow-[0_0_15px_rgba(16,185,129,0.08)]"
+                      type="text"
+                      value={fullName}
+                      onChange={(e) => setFullName(e.target.value)}
+                      placeholder="e.g. Ubadah Dev"
+                      className="w-full bg-zinc-950/80 border border-zinc-800/80 focus:border-emerald-500/60 text-emerald-400 font-mono text-xs px-4 py-2.5 outline-none placeholder:text-zinc-700"
                       disabled={isLoggingIn}
                     />
-                    <Key size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-600" />
                   </div>
+                )}
+
+                <div className="space-y-1">
+                  <label className="text-[9px] text-zinc-500 uppercase tracking-widest block font-bold">Email Address</label>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="e.g. dev@ub.technology"
+                    className="w-full bg-zinc-950/80 border border-zinc-800/80 focus:border-emerald-500/60 text-emerald-400 font-mono text-xs px-4 py-2.5 outline-none placeholder:text-zinc-700"
+                    disabled={isLoggingIn}
+                  />
                 </div>
+
+                <div className="space-y-1">
+                  <label className="text-[9px] text-zinc-500 uppercase tracking-widest block font-bold">Secure Password</label>
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••••"
+                    className="w-full bg-zinc-950/80 border border-zinc-800/80 focus:border-emerald-500/60 text-emerald-400 font-mono text-xs px-4 py-2.5 outline-none placeholder:text-zinc-700"
+                    disabled={isLoggingIn}
+                  />
+                </div>
+
+                {isSignUp && (
+                  <div className="space-y-1">
+                    <label className="text-[9px] text-zinc-500 uppercase tracking-widest block font-bold">Target Workspace Role</label>
+                    <select
+                      value={selectedRole}
+                      onChange={(e) => setSelectedRole(e.target.value as SessionRole)}
+                      className="w-full bg-zinc-950 border border-zinc-800 text-emerald-400 font-mono text-xs px-4 py-2.5 outline-none focus:border-emerald-500/60"
+                      disabled={isLoggingIn}
+                    >
+                      <option value="DEV">DEV (Freelancer Builder)</option>
+                      <option value="CLIENT">CLIENT (Corporate Client)</option>
+                      <option value="CEO">CEO (UB / Executive Founder)</option>
+                      <option value="CFO">CFO (SAM / Finance lead)</option>
+                      <option value="COO">COO (SAM / Operations lead)</option>
+                      <option value="CTO">CTO (AMMAR / Tech lead)</option>
+                    </select>
+                  </div>
+                )}
 
                 <button
                   type="submit"
                   disabled={isLoggingIn}
-                  className="w-full bg-emerald-500 hover:bg-emerald-400 text-black font-bold uppercase tracking-wider py-3 text-xs flex items-center justify-center gap-2 transition-all active:translate-y-[1px] disabled:opacity-50 cursor-pointer shadow-[0_0_15px_rgba(16,185,129,0.2)] hover:shadow-[0_0_20px_rgba(16,185,129,0.35)]"
+                  className="w-full bg-emerald-500 hover:bg-emerald-400 text-black font-bold uppercase tracking-wider py-3 text-xs flex items-center justify-center gap-2 transition-all active:translate-y-[1px] disabled:opacity-50 cursor-pointer shadow-[0_0_15px_rgba(16,185,129,0.2)]"
                 >
                   {isLoggingIn ? (
                     <>
                       <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />
-                      Authenticating Token...
+                      Processing Credentials...
                     </>
                   ) : (
                     <>
-                      Authenticate Session
+                      {isSignUp ? 'Register Account' : 'Authenticate Session'}
                       <ArrowRight size={14} />
                     </>
                   )}
@@ -257,40 +417,44 @@ export const GlobalShell: React.FC<GlobalShellProps> = ({
           </div>
 
           {/* Role Switcher Selector Mock Panel (Req #9) */}
-          <div className="hidden sm:flex items-center gap-1 bg-zinc-950/60 border border-zinc-900/60 p-0.5">
-            {(['CEO', 'CFO', 'COO', 'CTO', 'DEV', 'CLIENT', 'CHAT'] as SessionRole[]).map(role => (
-              <button
-                key={role}
-                onClick={() => {
-                  setActiveRole(role);
-                  addToast(`Access matrix switched to ${role} workspace.`, 'info');
-                }}
-                className={`px-2.5 py-1 text-[8px] font-bold transition-all ${activeRole === role ? 'bg-emerald-500 text-black shadow-[0_0_12px_rgba(16,185,129,0.25)]' : 'text-zinc-500 hover:text-zinc-300'}`}
-              >
-                {role}
-              </button>
-            ))}
-          </div>
+          {isCSuite && (
+            <div className="hidden sm:flex items-center gap-1 bg-zinc-950/60 border border-zinc-900/60 p-0.5">
+              {(['CEO', 'CFO', 'COO', 'CTO', 'DEV', 'CLIENT', 'CHAT'] as SessionRole[]).map(role => (
+                <button
+                  key={role}
+                  onClick={() => {
+                    setActiveRole(role);
+                    addToast(`Access matrix switched to ${role} workspace.`, 'info');
+                  }}
+                  className={`px-2.5 py-1 text-[8px] font-bold transition-all ${activeRole === role ? 'bg-emerald-500 text-black shadow-[0_0_12px_rgba(16,185,129,0.25)]' : 'text-zinc-500 hover:text-zinc-300'}`}
+                >
+                  {role}
+                </button>
+              ))}
+            </div>
+          )}
 
           {/* Quick-select switcher specifically for mobile */}
-          <div className="sm:hidden">
-            <select
-              value={activeRole}
-              onChange={(e) => {
-                setActiveRole(e.target.value as SessionRole);
-                addToast(`Switched to ${e.target.value} console.`, 'info');
-              }}
-              className="bg-zinc-950 border border-zinc-800 text-[9px] text-emerald-500 font-bold px-2 py-1 outline-none focus:border-emerald-500/50"
-            >
-              <option value="CEO">CEO (UB)</option>
-              <option value="CFO">CFO (SAM)</option>
-              <option value="COO">COO (SAM)</option>
-              <option value="CTO">CTO (AMMAR)</option>
-              <option value="DEV">DEV (Anon)</option>
-              <option value="CLIENT">Client</option>
-              <option value="CHAT">Chat Hub</option>
-            </select>
-          </div>
+          {isCSuite && (
+            <div className="sm:hidden">
+              <select
+                value={activeRole}
+                onChange={(e) => {
+                  setActiveRole(e.target.value as SessionRole);
+                  addToast(`Switched to ${e.target.value} console.`, 'info');
+                }}
+                className="bg-zinc-950 border border-zinc-800 text-[9px] text-emerald-500 font-bold px-2 py-1 outline-none focus:border-emerald-500/50"
+              >
+                <option value="CEO">CEO (UB)</option>
+                <option value="CFO">CFO (SAM)</option>
+                <option value="COO">COO (SAM)</option>
+                <option value="CTO">CTO (AMMAR)</option>
+                <option value="DEV">DEV (Anon)</option>
+                <option value="CLIENT">Client</option>
+                <option value="CHAT">Chat Hub</option>
+              </select>
+            </div>
+          )}
 
           <div className="h-6 w-[1px] bg-zinc-900/60" />
 
@@ -422,48 +586,56 @@ export const GlobalShell: React.FC<GlobalShellProps> = ({
         {/* Desktop Sidebar Navigation Shell (Req #7) */}
         <aside className="hidden md:flex w-16 border-r border-zinc-900/50 bg-zinc-950/40 backdrop-blur-md flex-col items-center py-6 justify-between text-zinc-600">
           <div className="flex flex-col items-center gap-6">
-            <button 
-              onClick={() => { setActiveRole('CEO'); addToast('CEO view active.', 'info'); }}
-              className={`p-2.5 rounded-sm transition-all hover:text-emerald-400 hover:bg-zinc-900/30 relative ${activeRole === 'CEO' ? 'text-emerald-400 bg-zinc-900/50 border-r-2 border-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.1)]' : ''}`}
-              title="CEO Console (UB)"
-            >
-              <Activity size={18} />
-            </button>
-            <button 
-              onClick={() => { setActiveRole('CFO'); addToast('CFO ledger console active.', 'info'); }}
-              className={`p-2.5 rounded-sm transition-all hover:text-emerald-400 hover:bg-zinc-900/30 relative ${activeRole === 'CFO' ? 'text-emerald-400 bg-zinc-900/50 border-r-2 border-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.1)]' : ''}`}
-              title="CFO Ledger (SAM)"
-            >
-              <Landmark size={18} />
-            </button>
-            <button 
-              onClick={() => { setActiveRole('COO'); addToast('COO console active.', 'info'); }}
-              className={`p-2.5 rounded-sm transition-all hover:text-emerald-400 hover:bg-zinc-900/30 relative ${activeRole === 'COO' ? 'text-emerald-400 bg-zinc-900/50 border-r-2 border-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.1)]' : ''}`}
-              title="COO Ops (SAM)"
-            >
-              <Settings size={18} />
-            </button>
-            <button 
-              onClick={() => { setActiveRole('CTO'); addToast('CTO workspace active.', 'info'); }}
-              className={`p-2.5 rounded-sm transition-all hover:text-emerald-400 hover:bg-zinc-900/30 relative ${activeRole === 'CTO' ? 'text-emerald-400 bg-zinc-900/50 border-r-2 border-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.1)]' : ''}`}
-              title="CTO Terminal (AMMAR)"
-            >
-              <UserCheck size={18} />
-            </button>
-            <button 
-              onClick={() => { setActiveRole('DEV'); addToast('Developer workbench active.', 'info'); }}
-              className={`p-2.5 rounded-sm transition-all hover:text-emerald-400 hover:bg-zinc-900/30 relative ${activeRole === 'DEV' ? 'text-emerald-400 bg-zinc-900/50 border-r-2 border-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.1)]' : ''}`}
-              title="Freelancer Workspace"
-            >
-              <Terminal size={18} />
-            </button>
-            <button 
-              onClick={() => { setActiveRole('CLIENT'); addToast('Client Transparency Gateway active.', 'info'); }}
-              className={`p-2.5 rounded-sm transition-all hover:text-emerald-400 hover:bg-zinc-900/30 relative ${activeRole === 'CLIENT' ? 'text-emerald-400 bg-zinc-900/50 border-r-2 border-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.1)]' : ''}`}
-              title="Client Transparency Gateway"
-            >
-              <ShieldCheck size={18} />
-            </button>
+            {isCSuite && (
+              <>
+                <button 
+                  onClick={() => { setActiveRole('CEO'); addToast('CEO view active.', 'info'); }}
+                  className={`p-2.5 rounded-sm transition-all hover:text-emerald-400 hover:bg-zinc-900/30 relative ${activeRole === 'CEO' ? 'text-emerald-400 bg-zinc-900/50 border-r-2 border-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.1)]' : ''}`}
+                  title="CEO Console (UB)"
+                >
+                  <Activity size={18} />
+                </button>
+                <button 
+                  onClick={() => { setActiveRole('CFO'); addToast('CFO ledger console active.', 'info'); }}
+                  className={`p-2.5 rounded-sm transition-all hover:text-emerald-400 hover:bg-zinc-900/30 relative ${activeRole === 'CFO' ? 'text-emerald-400 bg-zinc-900/50 border-r-2 border-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.1)]' : ''}`}
+                  title="CFO Ledger (SAM)"
+                >
+                  <Landmark size={18} />
+                </button>
+                <button 
+                  onClick={() => { setActiveRole('COO'); addToast('COO console active.', 'info'); }}
+                  className={`p-2.5 rounded-sm transition-all hover:text-emerald-400 hover:bg-zinc-900/30 relative ${activeRole === 'COO' ? 'text-emerald-400 bg-zinc-900/50 border-r-2 border-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.1)]' : ''}`}
+                  title="COO Ops (SAM)"
+                >
+                  <Settings size={18} />
+                </button>
+                <button 
+                  onClick={() => { setActiveRole('CTO'); addToast('CTO workspace active.', 'info'); }}
+                  className={`p-2.5 rounded-sm transition-all hover:text-emerald-400 hover:bg-zinc-900/30 relative ${activeRole === 'CTO' ? 'text-emerald-400 bg-zinc-900/50 border-r-2 border-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.1)]' : ''}`}
+                  title="CTO Terminal (AMMAR)"
+                >
+                  <UserCheck size={18} />
+                </button>
+              </>
+            )}
+            {(isCSuite || (currentUser && currentUser.role === 'DEV')) && (
+              <button 
+                onClick={() => { setActiveRole('DEV'); addToast('Developer workbench active.', 'info'); }}
+                className={`p-2.5 rounded-sm transition-all hover:text-emerald-400 hover:bg-zinc-900/30 relative ${activeRole === 'DEV' ? 'text-emerald-400 bg-zinc-900/50 border-r-2 border-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.1)]' : ''}`}
+                title="Freelancer Workspace"
+              >
+                <Terminal size={18} />
+              </button>
+            )}
+            {(isCSuite || (currentUser && currentUser.role === 'CLIENT')) && (
+              <button 
+                onClick={() => { setActiveRole('CLIENT'); addToast('Client Transparency Gateway active.', 'info'); }}
+                className={`p-2.5 rounded-sm transition-all hover:text-emerald-400 hover:bg-zinc-900/30 relative ${activeRole === 'CLIENT' ? 'text-emerald-400 bg-zinc-900/50 border-r-2 border-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.1)]' : ''}`}
+                title="Client Transparency Gateway"
+              >
+                <ShieldCheck size={18} />
+              </button>
+            )}
             <button 
               onClick={() => { setActiveRole('CHAT'); addToast('Anonymous Chat Console active.', 'info'); }}
               className={`p-2.5 rounded-sm transition-all hover:text-emerald-400 hover:bg-zinc-900/30 relative ${activeRole === 'CHAT' ? 'text-emerald-400 bg-zinc-900/50 border-r-2 border-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.1)]' : ''}`}

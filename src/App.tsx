@@ -15,10 +15,12 @@ import {
   INITIAL_TASKS, INITIAL_LEADS, INITIAL_ESCROW, 
   ZOHO_CONTRACTS, INITIAL_SANDBOXES, DEFAULT_CHANGE_REQUESTS 
 } from './data';
+import { supabase } from './supabaseClient';
 
 export default function App() {
   // Global Session Authentication
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [currentUser, setCurrentUser] = useState<any>(null);
   
   // Dashboard states
   const [activeRole, setActiveRole] = useState<SessionRole>('CEO');
@@ -74,15 +76,86 @@ export default function App() {
   }, [activeRole]);
 
   // Session Logins & Logouts
-  const handleLogin = (token: string) => {
+  const handleLogin = (token: string, role: SessionRole, profile: any) => {
     setIsAuthenticated(true);
-    addToast('Welcome back. Secure biometric handshake complete.', 'success');
+    setActiveRole(role);
+    setCurrentUser(profile);
+    addToast(`Access authorized. Welcome back, ${profile.full_name || 'user'}.`, 'success');
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     setIsAuthenticated(false);
+    setCurrentUser(null);
+    const isPlaceholder = !import.meta.env.VITE_SUPABASE_URL || 
+                          import.meta.env.VITE_SUPABASE_URL === 'https://placeholder-project.supabase.co' ||
+                          import.meta.env.VITE_SUPABASE_ANON_KEY === 'placeholder-anon-key';
+    if (!isPlaceholder) {
+      await supabase.auth.signOut();
+    }
     addToast('Secure session terminated cleanly.', 'info');
   };
+
+  // Restore session from Supabase on reload
+  useEffect(() => {
+    const checkSession = async () => {
+      const isPlaceholder = !import.meta.env.VITE_SUPABASE_URL || 
+                            import.meta.env.VITE_SUPABASE_URL === 'https://placeholder-project.supabase.co' ||
+                            import.meta.env.VITE_SUPABASE_ANON_KEY === 'placeholder-anon-key';
+      if (isPlaceholder) return;
+
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', session.user.id)
+            .single();
+          if (profile) {
+            setIsAuthenticated(true);
+            setActiveRole(profile.role as SessionRole);
+            setCurrentUser(profile);
+            addToast(`Session restored. Welcome back, ${profile.full_name}.`, 'success');
+          }
+        }
+      } catch (e) {
+        console.error('Session restore error:', e);
+      }
+    };
+    checkSession();
+  }, []);
+
+  // Listen for auth state changes
+  useEffect(() => {
+    const isPlaceholder = !import.meta.env.VITE_SUPABASE_URL || 
+                          import.meta.env.VITE_SUPABASE_URL === 'https://placeholder-project.supabase.co' ||
+                          import.meta.env.VITE_SUPABASE_ANON_KEY === 'placeholder-anon-key';
+    if (isPlaceholder) return;
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_IN' && session?.user) {
+        try {
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', session.user.id)
+            .single();
+          if (profile) {
+            setIsAuthenticated(true);
+            setActiveRole(profile.role as SessionRole);
+            setCurrentUser(profile);
+          }
+        } catch (e) {
+          console.error('Auth state change profile fetch error:', e);
+        }
+      } else if (event === 'SIGNED_OUT') {
+        setIsAuthenticated(false);
+        setCurrentUser(null);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
 
   // Render Skeleton Loader UI blocks (Req #19)
   const renderSkeleton = () => {
@@ -182,6 +255,7 @@ export default function App() {
             leads={leads}
             setLeads={setLeads}
             addToast={addToast}
+            currentUser={currentUser}
           />
         );
       case 'CLIENT':
@@ -221,6 +295,7 @@ export default function App() {
       toasts={toasts}
       removeToast={removeToast}
       addToast={addToast}
+      currentUser={currentUser}
     >
       {renderActivePanel()}
     </GlobalShell>
