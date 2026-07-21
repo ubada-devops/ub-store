@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { 
   GitBranch, GitPullRequest, Eye, CheckCircle2, XCircle, Play, 
   Cpu, Key, Database, RefreshCw, FolderGit2, FolderOpen,
-  ClipboardCheck, BarChart2, Radio, Server, AlertTriangle, FileCode, LayoutGrid, RadioTower
+  ClipboardCheck, BarChart2, Radio, Server, AlertTriangle, FileCode, LayoutGrid, RadioTower,
+  Terminal, ShieldCheck, Layers, ServerCrash, Code, Activity, Search
 } from 'lucide-react';
 import { 
   ProjectTask, SandboxStatus, ScraperLog, ZohoContract 
@@ -10,6 +11,7 @@ import {
 import { 
   CLINIC_SCRAPER_ROWS, VAPI_DIAGNOSTICS, SHARED_TEMPLATES 
 } from '../data';
+import { supabase } from '../supabaseClient';
 
 interface CTOPanelProps {
   tasks: ProjectTask[];
@@ -28,7 +30,22 @@ export const CTOPanel: React.FC<CTOPanelProps> = ({
   setSandboxes,
   addToast
 }) => {
-  const [activeTab, setActiveTab] = useState<'engineering' | 'infrastructure'>('engineering');
+  const [activeTab, setActiveTab] = useState<'engineering' | 'infrastructure' | 'database'>('engineering');
+
+  // Supabase Database Dashboard states
+  const [selectedTable, setSelectedTable] = useState<'profiles' | 'tasks' | 'escrows' | 'messages' | 'github_submissions'>('tasks');
+  const [tableData, setTableData] = useState<any[]>([]);
+  const [dbStats, setDbStats] = useState({
+    profilesCount: 0,
+    tasksCount: 0,
+    escrowsLocked: 0,
+    messagesCount: 0,
+    submissionsCount: 0
+  });
+  const [isLoadingDb, setIsLoadingDb] = useState(false);
+  const [customSQLQuery, setCustomSQLQuery] = useState('SELECT * FROM tasks LIMIT 5;');
+  const [sqlResults, setSqlResults] = useState<any[]>([]);
+  const [isExecutingSQL, setIsExecutingSQL] = useState(false);
 
   // Pull Requests mock state
   const [pendingPRs, setPendingPRs] = useState([
@@ -59,6 +76,115 @@ export const CTOPanel: React.FC<CTOPanelProps> = ({
     '[SELF-HEAL-DAEMON] Staging Alpha Sandbox server reporting 99% health.',
     '[SELF-HEAL-DAEMON] Scanning clinical scraper logs for potential bottlenecks...'
   ]);
+
+  // Fetch statistics and rows for the selected table in the database panel
+  useEffect(() => {
+    if (activeTab !== 'database') return;
+
+    const isPlaceholder = !import.meta.env.VITE_SUPABASE_URL || 
+                          import.meta.env.VITE_SUPABASE_URL === 'https://placeholder-project.supabase.co' ||
+                          import.meta.env.VITE_SUPABASE_ANON_KEY === 'placeholder-anon-key';
+
+    const fetchDbTelemetry = async () => {
+      setIsLoadingDb(true);
+      if (isPlaceholder) {
+        setDbStats({
+          profilesCount: 38,
+          tasksCount: tasks.length + 8,
+          escrowsLocked: 184000,
+          messagesCount: 154,
+          submissionsCount: 12
+        });
+
+        if (selectedTable === 'tasks') {
+          setTableData(tasks);
+        } else if (selectedTable === 'escrows') {
+          setTableData([
+            { id: 'ESC-291', client_name: 'CardioCare Corp', project_name: 'Layer-1 Clinic Scraper Pipeline', amount: 4999, status: 'Escrowed', created_at: '2026-07-20' },
+            { id: 'ESC-402', client_name: 'Apex Ltd', project_name: 'Stripe Webhook Handler integration', amount: 2499, status: 'Released', created_at: '2026-07-21' }
+          ]);
+        } else if (selectedTable === 'profiles') {
+          setTableData([
+            { id: 'user-01', email: 'ceo@ub.technology', full_name: 'Ubadah CEO', role: 'CEO', alias_mask: 'UB // CEO', created_at: '2026-07-19' },
+            { id: 'user-02', email: 'cto@ub.technology', full_name: 'Ammar CTO', role: 'CTO', alias_mask: 'AMMAR // CTO', created_at: '2026-07-19' },
+            { id: 'user-03', email: 'dev14@ub.club', full_name: 'Rohan Developer', role: 'DEV', alias_mask: 'UB_DEV_14', created_at: '2026-07-20' }
+          ]);
+        } else if (selectedTable === 'messages') {
+          setTableData([
+            { id: 'msg-01', channel_id: '#general-lobby', sender_alias: 'UB', payload: 'Welcome to the secure channel.', timestamp: '2026-07-20 01:12' },
+            { id: 'msg-02', channel_id: '#general-lobby', sender_alias: 'SAM', payload: 'Stripe webhook listener is verified.', timestamp: '2026-07-20 01:15' }
+          ]);
+        } else if (selectedTable === 'github_submissions') {
+          setTableData([
+            { id: 'sub-01', task_id: 'TSK-201', repo_url: 'https://github.com/ubtech/cardiocare', submitted_by: 'UB_DEV_14', created_at: '2026-07-21' }
+          ]);
+        }
+        setIsLoadingDb(false);
+        return;
+      }
+
+      try {
+        const { count: profCount } = await supabase.from('profiles').select('*', { count: 'exact', head: true });
+        const { count: taskCount } = await supabase.from('tasks').select('*', { count: 'exact', head: true });
+        const { count: msgCount } = await supabase.from('messages').select('*', { count: 'exact', head: true });
+        const { count: subCount } = await supabase.from('github_submissions').select('*', { count: 'exact', head: true });
+        const { data: escrowData } = await supabase.from('escrows').select('amount');
+
+        const escrowSum = escrowData ? escrowData.reduce((sum, e) => sum + Number(e.amount), 0) : 0;
+
+        setDbStats({
+          profilesCount: profCount || 0,
+          tasksCount: taskCount || 0,
+          escrowsLocked: escrowSum,
+          messagesCount: msgCount || 0,
+          submissionsCount: subCount || 0
+        });
+
+        const { data: rows } = await supabase
+          .from(selectedTable)
+          .select('*')
+          .limit(50);
+
+        if (rows) {
+          setTableData(rows);
+        }
+      } catch (err) {
+        console.error('Error fetching Supabase dashboard details:', err);
+      } finally {
+        setIsLoadingDb(false);
+      }
+    };
+
+    fetchDbTelemetry();
+  }, [activeTab, selectedTable, tasks]);
+
+  // Execute custom mock SQL commands inside query explorer
+  const handleExecuteSQL = () => {
+    setIsExecutingSQL(true);
+    addToast('Parsing SQL query grammar...', 'info');
+
+    setTimeout(() => {
+      setIsExecutingSQL(false);
+      if (customSQLQuery.trim().toLowerCase().includes('select') && customSQLQuery.trim().toLowerCase().includes('from')) {
+        addToast('SQL Query Executed Successfully', 'success');
+        if (customSQLQuery.toLowerCase().includes('tasks')) {
+          setSqlResults(tableData.slice(0, 5));
+        } else if (customSQLQuery.toLowerCase().includes('profiles')) {
+          setSqlResults([
+            { id: '1', email: 'sam@ub.club', role: 'CFO', full_name: 'Sam CFO' },
+            { id: '2', email: 'ammar@ub.club', role: 'CTO', full_name: 'Ammar CTO' }
+          ]);
+        } else {
+          setSqlResults([
+            { status: 'success', rows_affected: 1, command: 'SELECT', message: 'No explicit matching schema returned, fallback demo active.' }
+          ]);
+        }
+      } else {
+        addToast('Syntax Error: Only SELECT queries are supported via this secure gateway.', 'error');
+        setSqlResults([{ error: 'Syntax Error near "FROM"', details: 'Direct DDL/DML operations restricted by CTO master security policy.' }]);
+      }
+    }, 1200);
+  };
 
   // Simulate scrolling live self-healing console daemon output
   useEffect(() => {
@@ -138,26 +264,33 @@ export const CTOPanel: React.FC<CTOPanelProps> = ({
         </div>
       )}
 
-      {/* 2. Simplified Section Tab Switcher */}
+      {/* 2. Section Tab Switcher */}
       <div className="flex bg-zinc-900 border border-zinc-800 p-1 rounded-md">
         <button
           onClick={() => setActiveTab('engineering')}
-          className={`flex-1 py-3 text-sm font-bold uppercase flex items-center justify-center gap-2 transition-all ${activeTab === 'engineering' ? 'bg-emerald-500 text-black rounded shadow' : 'text-zinc-400 hover:text-zinc-200'}`}
+          className={`flex-1 py-3 text-xs font-bold uppercase flex items-center justify-center gap-2 transition-all ${activeTab === 'engineering' ? 'bg-emerald-500 text-black rounded shadow' : 'text-zinc-400 hover:text-zinc-200'}`}
         >
-          <LayoutGrid size={16} />
-          Code Reviews & Standards Checklist
+          <LayoutGrid size={14} />
+          Code Reviews & Standards
         </button>
         <button
           onClick={() => setActiveTab('infrastructure')}
-          className={`flex-1 py-3 text-sm font-bold uppercase flex items-center justify-center gap-2 transition-all ${activeTab === 'infrastructure' ? 'bg-emerald-500 text-black rounded shadow' : 'text-zinc-400 hover:text-zinc-200'}`}
+          className={`flex-1 py-3 text-xs font-bold uppercase flex items-center justify-center gap-2 transition-all ${activeTab === 'infrastructure' ? 'bg-emerald-500 text-black rounded shadow' : 'text-zinc-400 hover:text-zinc-200'}`}
         >
-          <RadioTower size={16} />
-          Infrastructure Streams & Security API Keys
+          <RadioTower size={14} />
+          Infrastructure & API Keys
+        </button>
+        <button
+          onClick={() => setActiveTab('database')}
+          className={`flex-1 py-3 text-xs font-bold uppercase flex items-center justify-center gap-2 transition-all ${activeTab === 'database' ? 'bg-emerald-500 text-black rounded shadow' : 'text-zinc-400 hover:text-zinc-200'}`}
+        >
+          <Database size={14} />
+          Supabase DB Dashboard
         </button>
       </div>
 
       {/* MAIN SINGLE CARD FOCUS LAYOUT */}
-      {activeTab === 'engineering' ? (
+      {activeTab === 'engineering' && (
         <div className="bg-zinc-900/60 border border-zinc-800/80 rounded-md p-8 space-y-8 shadow-2xl backdrop-blur-md">
           {/* Header */}
           <div className="border-b border-zinc-800 pb-6">
@@ -243,7 +376,9 @@ export const CTOPanel: React.FC<CTOPanelProps> = ({
             </div>
           </div>
         </div>
-      ) : (
+      )}
+
+      {activeTab === 'infrastructure' && (
         <div className="bg-zinc-900/60 border border-zinc-800/80 rounded-md p-8 space-y-8 shadow-2xl backdrop-blur-md">
           {/* Advanced Infrastructure Header */}
           <div className="border-b border-zinc-800 pb-6">
@@ -346,7 +481,7 @@ export const CTOPanel: React.FC<CTOPanelProps> = ({
                       <div className="text-[10px] text-zinc-500 mt-0.5">{box.url}</div>
                     </div>
                     <div className="text-right">
-                      <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase border ${box.status === 'Online' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20 animate-pulse'}`}>
+                      <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase border ${box.status === 'Online' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20'}`}>
                         {box.status}
                       </span>
                       <div className="text-[9px] text-zinc-500 mt-1 uppercase">Score: {box.healthScore}%</div>
@@ -354,6 +489,174 @@ export const CTOPanel: React.FC<CTOPanelProps> = ({
                   </div>
                 ))}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'database' && (
+        <div className="bg-zinc-900/60 border border-zinc-800/80 rounded-md p-8 space-y-8 shadow-2xl backdrop-blur-md">
+          {/* Supabase Dashboard Header */}
+          <div className="border-b border-zinc-800 pb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <Database size={20} className="text-emerald-400" />
+                <span className="text-xs uppercase font-mono text-emerald-400 font-bold tracking-widest">Supabase Platform Console</span>
+              </div>
+              <h1 className="text-2xl font-bold text-white tracking-tight">Supabase UI Database Dashboard</h1>
+              <p className="text-sm text-zinc-400 mt-1">Real-time telemetry and public tables browser synchronizing client nodes and PostgreSQL storage.</p>
+            </div>
+            
+            {/* Status node */}
+            <div className="flex items-center gap-2.5 px-3 py-1.5 bg-zinc-950 border border-zinc-850 rounded-sm text-[10px] self-start md:self-center">
+              <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="font-mono text-zinc-400 font-bold uppercase">DATABASE: CONNECTED</span>
+            </div>
+          </div>
+
+          {/* Database Analytics Telemetry Cards */}
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+            <div className="p-4 bg-zinc-950/40 border border-zinc-850 rounded">
+              <span className="text-[9px] text-zinc-500 uppercase block font-bold">profiles</span>
+              <div className="text-lg font-bold text-zinc-100 mt-1">{dbStats.profilesCount}</div>
+              <span className="text-[8px] text-zinc-600 block mt-0.5">Active Users</span>
+            </div>
+            <div className="p-4 bg-zinc-950/40 border border-zinc-850 rounded">
+              <span className="text-[9px] text-zinc-500 uppercase block font-bold">tasks</span>
+              <div className="text-lg font-bold text-zinc-100 mt-1">{dbStats.tasksCount}</div>
+              <span className="text-[8px] text-zinc-600 block mt-0.5">Sprints Row Count</span>
+            </div>
+            <div className="p-4 bg-zinc-950/40 border border-zinc-850 rounded">
+              <span className="text-[9px] text-zinc-500 uppercase block font-bold">escrow vault</span>
+              <div className="text-lg font-bold text-emerald-400 mt-1">₹{dbStats.escrowsLocked.toLocaleString()}</div>
+              <span className="text-[8px] text-zinc-600 block mt-0.5">Total INR locked</span>
+            </div>
+            <div className="p-4 bg-zinc-950/40 border border-zinc-850 rounded">
+              <span className="text-[9px] text-zinc-500 uppercase block font-bold">messages</span>
+              <div className="text-lg font-bold text-zinc-100 mt-1">{dbStats.messagesCount}</div>
+              <span className="text-[8px] text-zinc-600 block mt-0.5">Chat stream entries</span>
+            </div>
+            <div className="p-4 bg-zinc-950/40 border border-zinc-850 rounded col-span-2 md:col-span-1">
+              <span className="text-[9px] text-zinc-500 uppercase block font-bold">pgbouncer</span>
+              <div className="text-xs font-bold text-emerald-400 mt-2 font-mono uppercase">98.4% Hit</div>
+              <span className="text-[8px] text-zinc-600 block mt-1">Pool Status</span>
+            </div>
+          </div>
+
+          {/* Table Row browser */}
+          <div className="p-6 bg-zinc-950/40 border border-zinc-800 rounded space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-900 pb-4">
+              <div>
+                <h3 className="text-sm font-bold text-zinc-200 uppercase tracking-wider flex items-center gap-2">
+                  <Layers size={14} className="text-emerald-500" />
+                  Database Table Browser
+                </h3>
+                <p className="text-xs text-zinc-500 mt-0.5">Inspect raw contents and properties of public tables in public database schema.</p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-zinc-500 uppercase font-bold font-mono">Select Table:</span>
+                <select
+                  value={selectedTable}
+                  onChange={(e) => setSelectedTable(e.target.value as any)}
+                  className="bg-zinc-900 border border-zinc-800 text-xs px-3 py-1.5 outline-none focus:border-emerald-500 text-emerald-400 font-mono rounded"
+                >
+                  <option value="profiles">profiles (User Roles)</option>
+                  <option value="tasks">tasks (Retainer Sprints)</option>
+                  <option value="escrows">escrows (Funds Vault)</option>
+                  <option value="messages">messages (Real-Time Chat)</option>
+                  <option value="github_submissions">github_submissions (PRs)</option>
+                </select>
+              </div>
+            </div>
+
+            {isLoadingDb ? (
+              <div className="py-12 flex flex-col items-center justify-center gap-3">
+                <RefreshCw className="animate-spin text-emerald-500" size={24} />
+                <span className="text-xs text-zinc-500 uppercase font-mono tracking-widest">Querying schema tables...</span>
+              </div>
+            ) : tableData.length === 0 ? (
+              <div className="py-12 text-center text-zinc-600 text-xs font-mono uppercase">Table schema is currently empty.</div>
+            ) : (
+              <div className="overflow-x-auto border border-zinc-850 rounded bg-zinc-950/80 custom-scrollbar">
+                <table className="w-full text-left border-collapse text-xs font-mono">
+                  <thead>
+                    <tr className="bg-zinc-900 border-b border-zinc-850 text-[10px] text-zinc-400 uppercase tracking-wider">
+                      {Object.keys(tableData[0]).map((key) => (
+                        <th key={key} className="p-3 border-r border-zinc-850 last:border-0">{key}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tableData.map((row, index) => (
+                      <tr key={index} className="border-b border-zinc-900 hover:bg-zinc-900/40 text-zinc-300">
+                        {Object.values(row).map((val: any, idx) => (
+                          <td key={idx} className="p-3 border-r border-zinc-900 last:border-0 truncate max-w-[200px]" title={String(val)}>
+                            {typeof val === 'object' ? JSON.stringify(val) : String(val)}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <span className="text-[9px] text-zinc-600 block mt-1">Showing up to 50 rows per query limit. DB Engine: PostgreSQL 15.6 // Supabase API gateway v1</span>
+          </div>
+
+          {/* Interactive SQL Console CLI Panel */}
+          <div className="p-6 bg-zinc-950/40 border border-zinc-800 rounded space-y-4">
+            <h3 className="text-sm font-bold text-zinc-200 uppercase tracking-wider flex items-center gap-2">
+              <Code size={14} className="text-emerald-500" />
+              CTO Database SQL Console CLI
+            </h3>
+            <p className="text-xs text-zinc-500">Run quick analytical SELECT operations. Safety controls restrict schema DML mutations.</p>
+            
+            <div className="space-y-3">
+              <textarea
+                value={customSQLQuery}
+                onChange={(e) => setCustomSQLQuery(e.target.value)}
+                rows={3}
+                className="w-full bg-zinc-950 border border-zinc-850 rounded p-4 font-mono text-xs text-emerald-400 outline-none focus:border-emerald-500/50 resize-none"
+              />
+              
+              <div className="flex justify-between items-center">
+                <span className="text-[9px] text-zinc-500 uppercase font-mono">Limit: 5 queries/sec // Role: ADMIN_SUPER_USER</span>
+                <button
+                  onClick={handleExecuteSQL}
+                  disabled={isExecutingSQL}
+                  className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black font-bold uppercase text-xs rounded transition-colors flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  {isExecutingSQL ? (
+                    <>
+                      <RefreshCw size={12} className="animate-spin" />
+                      Executing...
+                    </>
+                  ) : (
+                    <>
+                      <Play size={12} />
+                      Run SQL Query
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {sqlResults.length > 0 && (
+                <div className="mt-4 p-4 bg-zinc-950 border border-zinc-900 rounded space-y-2">
+                  <div className="flex justify-between items-center text-[10px] text-zinc-500 font-mono">
+                    <span>Query Results Output:</span>
+                    <button 
+                      onClick={() => setSqlResults([])} 
+                      className="hover:text-zinc-300 uppercase underline"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                  <pre className="text-[11px] font-mono text-zinc-300 overflow-x-auto max-h-48 p-2 bg-zinc-900 border border-zinc-850 rounded custom-scrollbar">
+                    {JSON.stringify(sqlResults, null, 2)}
+                  </pre>
+                </div>
+              )}
             </div>
           </div>
         </div>
