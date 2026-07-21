@@ -1,0 +1,45 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Outfit", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  
+  --color-zinc-850: #1f1f23;
+  --color-emerald-500-glow: rgba(16, 185, 129, 0.15);
+  
+  --shadow-emerald-glow: 0 0 20px rgba(16, 185, 129, 0.1);
+  --shadow-emerald-glow-strong: 0 0 30px rgba(16, 185, 129, 0.2);
+}
+
+/* Base style overrides */
+body {
+  background-color: #09090b; /* zinc-950 */
+  color: #f4f4f5; /* zinc-100 */
+  background-image: radial-gradient(ellipse at 50% 0%, rgba(16, 185, 129, 0.04) 0%, transparent 75%);
+  background-attachment: fixed;
+}
+
+/* Micro Webkit scrollbars styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #09090b; /* zinc-950 */
+}
+
+::-webkit-scrollbar-thumb {
+  background: #18181b; /* zinc-900 */
+  border: 1px solid #27272a; /* zinc-800 */
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(16, 185, 129, 0.4); /* emerald-500/40 glow */
+  border-color: rgba(16, 185, 129, 0.6);
+}
+
+
