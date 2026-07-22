@@ -81,39 +81,41 @@ export const CTOPanel: React.FC<CTOPanelProps> = ({
   useEffect(() => {
     if (activeTab !== 'database') return;
 
-    setIsLoadingDb(true);
-    setDbStats({
-      profilesCount: 18,
-      tasksCount: tasks.length,
-      escrowsLocked: 184000,
-      messagesCount: 42,
-      submissionsCount: 4
-    });
+    const fetchDbTelemetry = async () => {
+      setIsLoadingDb(true);
+      try {
+        const { count: profCount } = await supabase.from('profiles').select('*', { count: 'exact', head: true });
+        const { count: taskCount } = await supabase.from('tasks').select('*', { count: 'exact', head: true });
+        const { count: msgCount } = await supabase.from('messages').select('*', { count: 'exact', head: true });
+        const { count: subCount } = await supabase.from('github_submissions').select('*', { count: 'exact', head: true });
+        const { data: escrowData } = await supabase.from('escrows').select('amount');
 
-    if (selectedTable === 'tasks') {
-      setTableData(tasks);
-    } else if (selectedTable === 'escrows') {
-      setTableData([
-        { id: 'ESC-291', client_name: 'CardioCare Corp', project_name: 'Layer-1 Clinic Scraper Pipeline', amount: 4999, status: 'Escrowed', created_at: '2026-07-20' },
-        { id: 'ESC-402', client_name: 'Apex Ltd', project_name: 'Stripe Webhook Handler integration', amount: 2499, status: 'Released', created_at: '2026-07-21' }
-      ]);
-    } else if (selectedTable === 'profiles') {
-      setTableData([
-        { id: 'user-01', email: 'ceo@ub.technology', full_name: 'Ubadah CEO', role: 'CEO', alias_mask: 'UB // CEO', created_at: '2026-07-19' },
-        { id: 'user-02', email: 'cto@ub.technology', full_name: 'Ammar CTO', role: 'CTO', alias_mask: 'AMMAR // CTO', created_at: '2026-07-19' },
-        { id: 'user-03', email: 'dev14@ub.club', full_name: 'Rohan Developer', role: 'DEV', alias_mask: 'UB_DEV_14', created_at: '2026-07-20' }
-      ]);
-    } else if (selectedTable === 'messages') {
-      setTableData([
-        { id: 'msg-01', channel_id: '#general-lobby', sender_alias: 'UB', payload: 'Welcome to the secure channel.', timestamp: '2026-07-20 01:12' },
-        { id: 'msg-02', channel_id: '#general-lobby', sender_alias: 'SAM', payload: 'Stripe webhook listener is verified.', timestamp: '2026-07-20 01:15' }
-      ]);
-    } else if (selectedTable === 'github_submissions') {
-      setTableData([
-        { id: 'sub-01', task_id: 'TSK-201', repo_url: 'https://github.com/ubtech/cardiocare', submitted_by: 'UB_DEV_14', created_at: '2026-07-21' }
-      ]);
-    }
-    setIsLoadingDb(false);
+        const escrowSum = escrowData ? escrowData.reduce((sum, e) => sum + Number(e.amount), 0) : 0;
+
+        setDbStats({
+          profilesCount: profCount || 0,
+          tasksCount: taskCount || 0,
+          escrowsLocked: escrowSum,
+          messagesCount: msgCount || 0,
+          submissionsCount: subCount || 0
+        });
+
+        const { data: rows } = await supabase
+          .from(selectedTable)
+          .select('*')
+          .limit(50);
+
+        if (rows) {
+          setTableData(rows);
+        }
+      } catch (err) {
+        console.error('Error fetching Supabase dashboard details:', err);
+      } finally {
+        setIsLoadingDb(false);
+      }
+    };
+
+    fetchDbTelemetry();
   }, [activeTab, selectedTable, tasks]);
 
   // Execute custom mock SQL commands inside query explorer

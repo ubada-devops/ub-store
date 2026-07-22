@@ -6,6 +6,7 @@ import {
   Sliders, UserX, Coins, Globe, Landmark, Users, ArrowUpRight
 } from 'lucide-react';
 import { SessionRole } from '../types';
+import { supabase } from '../supabaseClient';
 
 
 interface Message {
@@ -100,6 +101,63 @@ export const AnonymousChat: React.FC<AnonymousChatProps> = ({
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, activeChannel]);
+
+  // Fetch messages from Supabase
+  useEffect(() => {
+    const fetchMessages = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('messages')
+          .select('*')
+          .eq('channel_id', activeChannel)
+          .order('timestamp', { ascending: true })
+          .limit(50);
+        if (data) {
+          setMessages(data.map(m => ({
+            id: m.id,
+            channel_id: m.channel_id,
+            sender_alias: m.sender_alias,
+            payload: m.payload,
+            timestamp: new Date(m.timestamp).getTime(),
+            isSystem: m.is_system
+          })));
+        }
+      } catch (e) {
+        console.error('Error fetching chat messages:', e);
+      }
+    };
+    fetchMessages();
+  }, [activeChannel]);
+
+  // Subscribe to Postgres changes for real-time messages
+  useEffect(() => {
+    const channel = supabase
+      .channel(`room-${activeChannel}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'messages',
+        filter: `channel_id=eq.${activeChannel}`
+      }, (payload) => {
+        const newMsg = {
+          id: payload.new.id,
+          channel_id: payload.new.channel_id,
+          sender_alias: payload.new.sender_alias,
+          payload: payload.new.payload,
+          timestamp: new Date(payload.new.timestamp).getTime(),
+          isSystem: payload.new.is_system
+        };
+        setMessages(prev => {
+          if (prev.some(m => m.id === newMsg.id)) return prev;
+          return [...prev, newMsg].slice(-50);
+        });
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [activeChannel]);
 
 
 
@@ -253,7 +311,7 @@ export const AnonymousChat: React.FC<AnonymousChatProps> = ({
     return true; // Passed validation
   };
 
-  const handleSendMessage = (e: React.FormEvent) => {
+  const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputMessage.trim()) return;
 
@@ -284,17 +342,22 @@ export const AnonymousChat: React.FC<AnonymousChatProps> = ({
 
     setLastTransmittedPacket(packet);
 
-    const newMsg = {
-      id: 'msg-' + Math.random().toString(36).substring(2, 7),
-      channel_id: activeChannel,
-      sender_alias: chatSenderIdentity,
-      payload: inputMessage,
-      timestamp: Date.now()
-    };
-
-    setMessages(prev => [...prev, newMsg].slice(-50));
-    setInputMessage('');
-    addToast('Message transmitted over secure WebSocket.', 'success');
+    try {
+      const { error } = await supabase.from('messages').insert([
+        {
+          channel_id: activeChannel,
+          sender_alias: chatSenderIdentity,
+          payload: inputMessage,
+          is_system: false
+        }
+      ]);
+      if (error) throw error;
+      setInputMessage('');
+      addToast('Message transmitted over secure WebSocket.', 'success');
+    } catch (err) {
+      console.error('Chat insert error:', err);
+      addToast('Failed to insert message into Supabase database.', 'error');
+    }
   };
 
 

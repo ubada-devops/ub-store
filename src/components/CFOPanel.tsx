@@ -4,6 +4,7 @@ import {
   TrendingUp, Users, Award, Receipt, Coins, ArrowUpRight, CheckSquare
 } from 'lucide-react';
 import { ProjectTask, EscrowTransaction } from '../types';
+import { supabase } from '../supabaseClient';
 import { 
   STRIPE_RECON_RECORDS, FIRA_REMITTANCES, PARTNER_AFFILIATES, 
   PLACEMENT_COMMISSIONS, TRANSPORT_SUBSIDIES 
@@ -39,14 +40,25 @@ export const CFOPanel: React.FC<CFOPanelProps> = ({
   }, 0) * 30;
   const weeklyDevPayout = tasks.filter(t => t.assignedDev !== 'Unassigned').length * 2800;
 
-  const handleReleasePayment = (escrowId: string) => {
-    setEscrows(prev => prev.map(esc => {
-      if (esc.id === escrowId) {
-        return { ...esc, status: 'Released' };
-      }
-      return esc;
-    }));
-    addToast('CFO Authorization: Milestone payout disbursed successfully.', 'success');
+  const handleReleasePayment = async (escrowId: string) => {
+    try {
+      const { error } = await supabase
+        .from('escrows')
+        .update({ status: 'Released' })
+        .eq('id', escrowId);
+      if (error) throw error;
+
+      setEscrows(prev => prev.map(esc => {
+        if (esc.id === escrowId) {
+          return { ...esc, status: 'Released' };
+        }
+        return esc;
+      }));
+      addToast('CFO Authorization: Milestone payout disbursed successfully.', 'success');
+    } catch (err) {
+      console.error('Error releasing escrow in Supabase:', err);
+      addToast('Failed to release escrow in database.', 'error');
+    }
   };
 
   const handleDispatchInvoice = (e: React.FormEvent) => {

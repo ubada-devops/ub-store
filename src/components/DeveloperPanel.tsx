@@ -6,6 +6,7 @@ import {
   BookOpen, LayoutGrid, Eye, Clock, ListChecks
 } from 'lucide-react';
 import { ProjectTask, LeadAssignment } from '../types';
+import { supabase } from '../supabaseClient';
 
 
 interface DeveloperPanelProps {
@@ -126,7 +127,7 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({
   };
 
   // Submit code for Ammar's validation
-  const handleSubmitReview = (e: React.FormEvent) => {
+  const handleSubmitReview = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedTaskToSubmit) {
       addToast('Please select a task to submit.', 'error');
@@ -140,15 +141,37 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({
     const taskToUpdate = tasks.find(t => t.id === selectedTaskToSubmit);
     const updatedPrCount = taskToUpdate ? taskToUpdate.prsCount + 1 : 1;
 
-    setTasks(prev => prev.map(t => {
-      if (t.id === selectedTaskToSubmit) {
-        return { ...t, stage: 'QA', prsCount: updatedPrCount };
-      }
-      return t;
-    }));
+    try {
+      const { error: taskError } = await supabase
+        .from('tasks')
+        .update({ stage: 'QA', prs_count: updatedPrCount })
+        .eq('id', selectedTaskToSubmit);
+      if (taskError) throw taskError;
 
-    setRepoUrlInput('');
-    addToast(`Codebase submitted. Notifying AMMAR_CTO for PR review validation.`, 'success');
+      const { error: submissionError } = await supabase
+        .from('github_submissions')
+        .insert([
+          {
+            task_id: selectedTaskToSubmit,
+            repo_url: repoUrlInput,
+            submitted_by: currentUser?.id
+          }
+        ]);
+      if (submissionError) throw submissionError;
+
+      setTasks(prev => prev.map(t => {
+        if (t.id === selectedTaskToSubmit) {
+          return { ...t, stage: 'QA', prsCount: updatedPrCount };
+        }
+        return t;
+      }));
+
+      setRepoUrlInput('');
+      addToast(`Codebase submitted. Notifying AMMAR_CTO for PR review validation.`, 'success');
+    } catch (err) {
+      console.error('Error submitting code in Supabase:', err);
+      addToast('Failed to save code submission in database.', 'error');
+    }
   };
 
   // Broadcast to Telegram secure hook
