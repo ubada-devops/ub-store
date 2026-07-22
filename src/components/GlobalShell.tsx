@@ -7,7 +7,7 @@ import {
   FileText, Landmark, MessageSquare, Brain, TrendingUp, ShieldAlert
 } from 'lucide-react';
 import { SessionRole, ToastMessage } from '../types';
-import { supabase } from '../supabaseClient';
+
 
 interface GlobalShellProps {
   isAuthenticated: boolean;
@@ -102,79 +102,25 @@ export const GlobalShell: React.FC<GlobalShellProps> = ({
     }
     
     setIsLoggingIn(true);
-    try {
-      if (isSignUp) {
-        if (!fullName.trim()) {
-          addToast('Full name is required for registration.', 'error');
-          setIsLoggingIn(false);
-          return;
-        }
-        
-        const { data, error } = await supabase.auth.signUp({
-          email,
-          password,
-        });
-        
-        if (error) throw error;
-        if (data.user) {
-          const alias = selectedRole === 'DEV' 
-            ? `UB_DEV_${Math.floor(10 + Math.random() * 90)}` 
-            : selectedRole === 'CLIENT' 
-              ? `${fullName} // Client` 
-              : `UB // ${selectedRole}`;
+    setTimeout(() => {
+      const alias = selectedRole === 'DEV' 
+        ? `UB_DEV_${Math.floor(10 + Math.random() * 90)}` 
+        : selectedRole === 'CLIENT' 
+          ? `${fullName || 'Corporate client'} // Client` 
+          : `UB // ${selectedRole}`;
 
-          const { error: profileError } = await supabase.from('profiles').insert([
-            {
-              id: data.user.id,
-              email,
-              full_name: fullName,
-              role: selectedRole,
-              alias_mask: alias
-            }
-          ]);
-          if (profileError) throw profileError;
-          
-          if (data.session) {
-            addToast('Registration successful! Logging in...', 'success');
-            onLogin(data.session.access_token, selectedRole, {
-              id: data.user.id,
-              email,
-              full_name: fullName,
-              role: selectedRole,
-              alias_mask: alias
-            });
-          } else {
-            addToast('Registration successful! Please check your email or log in.', 'success');
-            setIsSignUp(false);
-          }
-        }
-      } else {
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
-        if (error) throw error;
-        
-        if (data.user) {
-          const { data: profile, error: profileError } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', data.user.id)
-            .single();
-            
-          if (profileError || !profile) {
-            throw new Error('Profile not found in database. Contact administrator.');
-          } else {
-            onLogin(data.session?.access_token || 'session-token', profile.role as SessionRole, profile);
-          }
-        }
-      }
-    } catch (err: any) {
-      console.error(err);
-      addToast(err.message || 'Authentication failed.', 'error');
-    } finally {
+      const localProfile = {
+        id: 'local-user-' + Math.random().toString(36).substring(2, 7),
+        email: email,
+        full_name: fullName || email.split('@')[0],
+        role: selectedRole,
+        alias_mask: alias
+      };
+      
+      onLogin('local-demo-token', selectedRole, localProfile);
       setIsLoggingIn(false);
-    }
+      addToast(isSignUp ? 'Registration and workspace initialized locally.' : 'Logged in to local demo session.', 'success');
+    }, 600);
   };
 
 
