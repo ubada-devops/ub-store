@@ -45,15 +45,7 @@ export const AnonymousChat: React.FC<AnonymousChatProps> = ({
   });
 
   // Active message array with sliding window of max 50 items (Req #15)
-  const [messages, setMessages] = useState<Message[]>([
-    { id: '1', channel_id: '#general-lobby', sender_alias: 'UB', payload: 'Welcome to the UB CLUB secure hub. All communication here is strictly masked.', timestamp: Date.now() - 3600000, isSystem: true },
-    { id: '2', channel_id: '#general-lobby', sender_alias: 'SAM', payload: 'Operations are green. All inward wires are routed through Skydo.', timestamp: Date.now() - 3000000 },
-    { id: '3', channel_id: '#general-lobby', sender_alias: 'UB_DEV_14', payload: 'Completed the clinical scraper hooks. Standardizing payload sanitizer next.', timestamp: Date.now() - 2400000 },
-    { id: '4', channel_id: '#general-lobby', sender_alias: 'AMMAR', payload: 'Make sure to pass all inputs through regex pre-routing filters. Absolute privacy.', timestamp: Date.now() - 1800000 },
-    { id: '5', channel_id: '#cto-pipeline', sender_alias: 'UB_DEV_14', payload: '```typescript\n// Secure webhook callback filter\nexport function sanitize(input: string) {\n  return input.replace(/[<>]/g, "");\n}\n```', timestamp: Date.now() - 1200000 },
-    { id: '6', channel_id: '#cto-pipeline', sender_alias: 'AMMAR', payload: 'Looks robust. Make sure to commit to branch alpha-sprints.', timestamp: Date.now() - 900000 },
-    { id: '7', channel_id: '#escrow-feed', sender_alias: 'SYSTEM', payload: '[SKYDO REMITTANCE] cleared inward ₹4,89,000 corporate retainer from CardioCare Diagnostics.', timestamp: Date.now() - 600000, isSystem: true },
-  ]);
+  const [messages, setMessages] = useState<Message[]>([]);
 
   // Input state
   const [inputMessage, setInputMessage] = useState('');
@@ -111,11 +103,6 @@ export const AnonymousChat: React.FC<AnonymousChatProps> = ({
 
   // Fetch messages from Supabase
   useEffect(() => {
-    const isPlaceholder = !import.meta.env.VITE_SUPABASE_URL || 
-                          import.meta.env.VITE_SUPABASE_URL === 'https://placeholder-project.supabase.co' ||
-                          import.meta.env.VITE_SUPABASE_ANON_KEY === 'placeholder-anon-key';
-    if (isPlaceholder) return;
-
     const fetchMessages = async () => {
       try {
         const { data, error } = await supabase
@@ -143,11 +130,6 @@ export const AnonymousChat: React.FC<AnonymousChatProps> = ({
 
   // Subscribe to Postgres changes for real-time messages
   useEffect(() => {
-    const isPlaceholder = !import.meta.env.VITE_SUPABASE_URL || 
-                          import.meta.env.VITE_SUPABASE_URL === 'https://placeholder-project.supabase.co' ||
-                          import.meta.env.VITE_SUPABASE_ANON_KEY === 'placeholder-anon-key';
-    if (isPlaceholder) return;
-
     const channel = supabase
       .channel(`room-${activeChannel}`)
       .on('postgres_changes', {
@@ -156,7 +138,7 @@ export const AnonymousChat: React.FC<AnonymousChatProps> = ({
         table: 'messages',
         filter: `channel_id=eq.${activeChannel}`
       }, (payload) => {
-        const newMsg: Message = {
+        const newMsg = {
           id: payload.new.id,
           channel_id: payload.new.channel_id,
           sender_alias: payload.new.sender_alias,
@@ -348,7 +330,6 @@ export const AnonymousChat: React.FC<AnonymousChatProps> = ({
     }
 
     // Token-Optimized JSON Structure (Req #4)
-    const uuid = 'msg_' + Math.random().toString(36).substring(2, 11);
     const packet = {
       "channel_id": activeChannel,
       "sender_alias": chatSenderIdentity,
@@ -358,45 +339,22 @@ export const AnonymousChat: React.FC<AnonymousChatProps> = ({
 
     setLastTransmittedPacket(packet);
 
-    const isPlaceholder = !import.meta.env.VITE_SUPABASE_URL || 
-                          import.meta.env.VITE_SUPABASE_URL === 'https://placeholder-project.supabase.co' ||
-                          import.meta.env.VITE_SUPABASE_ANON_KEY === 'placeholder-anon-key';
-
-    if (!isPlaceholder) {
-      try {
-        const { error } = await supabase.from('messages').insert([
-          {
-            channel_id: activeChannel,
-            sender_alias: chatSenderIdentity,
-            payload: inputMessage,
-            is_system: false
-          }
-        ]);
-        if (error) throw error;
-      } catch (err: any) {
-        console.error('Chat insert error:', err);
-        addToast('Failed to insert message into Supabase database.', 'error');
-      }
-    } else {
-      // Save message locally (fallback)
-      const newMsg: Message = {
-        id: uuid,
-        channel_id: activeChannel,
-        sender_alias: chatSenderIdentity,
-        payload: inputMessage,
-        timestamp: Date.now()
-      };
-
-      setMessages(prev => {
-        const updated = [...prev, newMsg];
-        return updated.slice(-50); // Sliding scale maximum 50 index (Req #15)
-      });
-
-      setPendingBatchCount(prev => prev + 1);
+    try {
+      const { error } = await supabase.from('messages').insert([
+        {
+          channel_id: activeChannel,
+          sender_alias: chatSenderIdentity,
+          payload: inputMessage,
+          is_system: false
+        }
+      ]);
+      if (error) throw error;
+      setInputMessage('');
+      addToast('Message transmitted over secure WebSocket.', 'success');
+    } catch (err) {
+      console.error('Chat insert error:', err);
+      addToast('Failed to insert message into Supabase database.', 'error');
     }
-
-    setInputMessage('');
-    addToast('Message transmitted over secure WebSocket.', 'success');
   };
 
 

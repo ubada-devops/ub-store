@@ -140,43 +140,37 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({
     const taskToUpdate = tasks.find(t => t.id === selectedTaskToSubmit);
     const updatedPrCount = taskToUpdate ? taskToUpdate.prsCount + 1 : 1;
 
-    const isPlaceholder = !import.meta.env.VITE_SUPABASE_URL || 
-                          import.meta.env.VITE_SUPABASE_URL === 'https://placeholder-project.supabase.co' ||
-                          import.meta.env.VITE_SUPABASE_ANON_KEY === 'placeholder-anon-key';
+    try {
+      const { error: taskError } = await supabase
+        .from('tasks')
+        .update({ stage: 'QA', prs_count: updatedPrCount })
+        .eq('id', selectedTaskToSubmit);
+      if (taskError) throw taskError;
 
-    if (!isPlaceholder) {
-      try {
-        const { error: taskError } = await supabase
-          .from('tasks')
-          .update({ stage: 'QA', prs_count: updatedPrCount })
-          .eq('id', selectedTaskToSubmit);
-        if (taskError) throw taskError;
+      const { error: submissionError } = await supabase
+        .from('github_submissions')
+        .insert([
+          {
+            task_id: selectedTaskToSubmit,
+            repo_url: repoUrlInput,
+            submitted_by: currentUser?.id
+          }
+        ]);
+      if (submissionError) throw submissionError;
 
-        const { error: submissionError } = await supabase
-          .from('github_submissions')
-          .insert([
-            {
-              task_id: selectedTaskToSubmit,
-              repo_url: repoUrlInput,
-              submitted_by: currentUser?.id
-            }
-          ]);
-        if (submissionError) throw submissionError;
-      } catch (err: any) {
-        console.error('Error submitting code in Supabase:', err);
-        addToast('Failed to save code submission in database.', 'error');
-      }
+      setTasks(prev => prev.map(t => {
+        if (t.id === selectedTaskToSubmit) {
+          return { ...t, stage: 'QA', prsCount: updatedPrCount };
+        }
+        return t;
+      }));
+
+      setRepoUrlInput('');
+      addToast(`Codebase submitted. Notifying AMMAR_CTO for PR review validation.`, 'success');
+    } catch (err) {
+      console.error('Error submitting code in Supabase:', err);
+      addToast('Failed to save code submission in database.', 'error');
     }
-
-    setTasks(prev => prev.map(t => {
-      if (t.id === selectedTaskToSubmit) {
-        addToast(`Codebase submitted. Notifying AMMAR_CTO for PR review validation.`, 'success');
-        return { ...t, stage: 'QA', prsCount: updatedPrCount };
-      }
-      return t;
-    }));
-
-    setRepoUrlInput('');
   };
 
   // Broadcast to Telegram secure hook

@@ -101,26 +101,6 @@ export const GlobalShell: React.FC<GlobalShellProps> = ({
       return;
     }
     
-    const isPlaceholder = !import.meta.env.VITE_SUPABASE_URL || 
-                          import.meta.env.VITE_SUPABASE_URL === 'https://placeholder-project.supabase.co' ||
-                          import.meta.env.VITE_SUPABASE_ANON_KEY === 'placeholder-anon-key';
-                          
-    if (isPlaceholder) {
-      setIsLoggingIn(true);
-      setTimeout(() => {
-        const dummyProfile = {
-          email: email,
-          full_name: fullName || email.split('@')[0],
-          role: selectedRole,
-          alias_mask: selectedRole === 'DEV' ? 'UB_DEV_14' : selectedRole === 'CLIENT' ? 'CardioCare // Client' : `UB // ${selectedRole}`
-        };
-        onLogin('demo-session-token', selectedRole, dummyProfile);
-        setIsLoggingIn(false);
-      }, 800);
-      addToast('Running in Demo/Offline fallback mode (No Supabase env detected).', 'warn');
-      return;
-    }
-
     setIsLoggingIn(true);
     try {
       if (isSignUp) {
@@ -154,13 +134,19 @@ export const GlobalShell: React.FC<GlobalShellProps> = ({
           ]);
           if (profileError) throw profileError;
           
-          addToast('Registration successful! Accessing workspace...', 'success');
-          onLogin(data.session?.access_token || 'session-token', selectedRole, {
-            email,
-            full_name: fullName,
-            role: selectedRole,
-            alias_mask: alias
-          });
+          if (data.session) {
+            addToast('Registration successful! Logging in...', 'success');
+            onLogin(data.session.access_token, selectedRole, {
+              id: data.user.id,
+              email,
+              full_name: fullName,
+              role: selectedRole,
+              alias_mask: alias
+            });
+          } else {
+            addToast('Registration successful! Please check your email or log in.', 'success');
+            setIsSignUp(false);
+          }
         }
       } else {
         const { data, error } = await supabase.auth.signInWithPassword({
@@ -176,17 +162,8 @@ export const GlobalShell: React.FC<GlobalShellProps> = ({
             .eq('id', data.user.id)
             .single();
             
-          if (profileError) {
-            const alias = `UB_DEV_${Math.floor(10 + Math.random() * 90)}`;
-            const defaultProfile = {
-              id: data.user.id,
-              email: data.user.email || email,
-              full_name: email.split('@')[0],
-              role: 'DEV' as SessionRole,
-              alias_mask: alias
-            };
-            await supabase.from('profiles').insert([defaultProfile]);
-            onLogin(data.session?.access_token || 'session-token', 'DEV', defaultProfile);
+          if (profileError || !profile) {
+            throw new Error('Profile not found in database. Contact administrator.');
           } else {
             onLogin(data.session?.access_token || 'session-token', profile.role as SessionRole, profile);
           }

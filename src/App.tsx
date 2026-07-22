@@ -14,10 +14,7 @@ import {
   ProjectTask, LeadAssignment, EscrowTransaction, 
   ZohoContract, ChangeRequestTicket, SandboxStatus, ToastMessage, SessionRole 
 } from './types';
-import { 
-  INITIAL_TASKS, INITIAL_LEADS, INITIAL_ESCROW, 
-  ZOHO_CONTRACTS, INITIAL_SANDBOXES, DEFAULT_CHANGE_REQUESTS 
-} from './data';
+
 import { supabase } from './supabaseClient';
 
 export default function App() {
@@ -36,12 +33,12 @@ export default function App() {
   const [developerSlots, setDeveloperSlots] = useState<number>(24); // compute slots set by COO, updates CEO's meter
 
   // Core Data models
-  const [tasks, setTasks] = useState<ProjectTask[]>(INITIAL_TASKS);
-  const [leads, setLeads] = useState<LeadAssignment[]>(INITIAL_LEADS);
-  const [escrows, setEscrows] = useState<EscrowTransaction[]>(INITIAL_ESCROW);
-  const [contracts, setContracts] = useState<ZohoContract[]>(ZOHO_CONTRACTS);
-  const [sandboxes, setSandboxes] = useState<SandboxStatus[]>(INITIAL_SANDBOXES);
-  const [changeRequests, setChangeRequests] = useState<ChangeRequestTicket[]>(DEFAULT_CHANGE_REQUESTS);
+  const [tasks, setTasks] = useState<ProjectTask[]>([]);
+  const [leads, setLeads] = useState<LeadAssignment[]>([]);
+  const [escrows, setEscrows] = useState<EscrowTransaction[]>([]);
+  const [contracts, setContracts] = useState<ZohoContract[]>([]);
+  const [sandboxes, setSandboxes] = useState<SandboxStatus[]>([]);
+  const [changeRequests, setChangeRequests] = useState<ChangeRequestTicket[]>([]);
 
   // Toast Alerts (Req #20)
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -89,23 +86,13 @@ export default function App() {
   const handleLogout = async () => {
     setIsAuthenticated(false);
     setCurrentUser(null);
-    const isPlaceholder = !import.meta.env.VITE_SUPABASE_URL || 
-                          import.meta.env.VITE_SUPABASE_URL === 'https://placeholder-project.supabase.co' ||
-                          import.meta.env.VITE_SUPABASE_ANON_KEY === 'placeholder-anon-key';
-    if (!isPlaceholder) {
-      await supabase.auth.signOut();
-    }
+    await supabase.auth.signOut();
     addToast('Secure session terminated cleanly.', 'info');
   };
 
   // Restore session from Supabase on reload
   useEffect(() => {
     const checkSession = async () => {
-      const isPlaceholder = !import.meta.env.VITE_SUPABASE_URL || 
-                            import.meta.env.VITE_SUPABASE_URL === 'https://placeholder-project.supabase.co' ||
-                            import.meta.env.VITE_SUPABASE_ANON_KEY === 'placeholder-anon-key';
-      if (isPlaceholder) return;
-
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user) {
@@ -130,11 +117,6 @@ export default function App() {
 
   // Listen for auth state changes
   useEffect(() => {
-    const isPlaceholder = !import.meta.env.VITE_SUPABASE_URL || 
-                          import.meta.env.VITE_SUPABASE_URL === 'https://placeholder-project.supabase.co' ||
-                          import.meta.env.VITE_SUPABASE_ANON_KEY === 'placeholder-anon-key';
-    if (isPlaceholder) return;
-
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_IN' && session?.user) {
         try {
@@ -159,6 +141,51 @@ export default function App() {
 
     return () => subscription.unsubscribe();
   }, []);
+
+  // Live database fetcher when authenticated
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    const fetchDatabaseData = async () => {
+      try {
+        // 1. Fetch Tasks
+        const { data: dbTasks } = await supabase
+          .from('tasks')
+          .select('*');
+        if (dbTasks) {
+          setTasks(dbTasks.map(t => ({
+            id: t.id,
+            name: t.name,
+            client: t.client,
+            tier: t.tier,
+            stage: t.stage,
+            description: t.description,
+            assignedDev: t.assigned_dev_name,
+            prsCount: t.prs_count,
+            health: t.health
+          })));
+        }
+
+        // 2. Fetch Escrows
+        const { data: dbEscrows } = await supabase
+          .from('escrows')
+          .select('*');
+        if (dbEscrows) {
+          setEscrows(dbEscrows.map(e => ({
+            id: e.id,
+            client: e.client_name,
+            project: e.project_name,
+            amount: Number(e.amount),
+            status: e.status
+          })));
+        }
+      } catch (err) {
+        console.error('Database fetch error:', err);
+      }
+    };
+
+    fetchDatabaseData();
+  }, [isAuthenticated]);
 
   // Render Skeleton Loader UI blocks (Req #19)
   const renderSkeleton = () => {

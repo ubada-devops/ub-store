@@ -81,48 +81,8 @@ export const CTOPanel: React.FC<CTOPanelProps> = ({
   useEffect(() => {
     if (activeTab !== 'database') return;
 
-    const isPlaceholder = !import.meta.env.VITE_SUPABASE_URL || 
-                          import.meta.env.VITE_SUPABASE_URL === 'https://placeholder-project.supabase.co' ||
-                          import.meta.env.VITE_SUPABASE_ANON_KEY === 'placeholder-anon-key';
-
     const fetchDbTelemetry = async () => {
       setIsLoadingDb(true);
-      if (isPlaceholder) {
-        setDbStats({
-          profilesCount: 38,
-          tasksCount: tasks.length + 8,
-          escrowsLocked: 184000,
-          messagesCount: 154,
-          submissionsCount: 12
-        });
-
-        if (selectedTable === 'tasks') {
-          setTableData(tasks);
-        } else if (selectedTable === 'escrows') {
-          setTableData([
-            { id: 'ESC-291', client_name: 'CardioCare Corp', project_name: 'Layer-1 Clinic Scraper Pipeline', amount: 4999, status: 'Escrowed', created_at: '2026-07-20' },
-            { id: 'ESC-402', client_name: 'Apex Ltd', project_name: 'Stripe Webhook Handler integration', amount: 2499, status: 'Released', created_at: '2026-07-21' }
-          ]);
-        } else if (selectedTable === 'profiles') {
-          setTableData([
-            { id: 'user-01', email: 'ceo@ub.technology', full_name: 'Ubadah CEO', role: 'CEO', alias_mask: 'UB // CEO', created_at: '2026-07-19' },
-            { id: 'user-02', email: 'cto@ub.technology', full_name: 'Ammar CTO', role: 'CTO', alias_mask: 'AMMAR // CTO', created_at: '2026-07-19' },
-            { id: 'user-03', email: 'dev14@ub.club', full_name: 'Rohan Developer', role: 'DEV', alias_mask: 'UB_DEV_14', created_at: '2026-07-20' }
-          ]);
-        } else if (selectedTable === 'messages') {
-          setTableData([
-            { id: 'msg-01', channel_id: '#general-lobby', sender_alias: 'UB', payload: 'Welcome to the secure channel.', timestamp: '2026-07-20 01:12' },
-            { id: 'msg-02', channel_id: '#general-lobby', sender_alias: 'SAM', payload: 'Stripe webhook listener is verified.', timestamp: '2026-07-20 01:15' }
-          ]);
-        } else if (selectedTable === 'github_submissions') {
-          setTableData([
-            { id: 'sub-01', task_id: 'TSK-201', repo_url: 'https://github.com/ubtech/cardiocare', submitted_by: 'UB_DEV_14', created_at: '2026-07-21' }
-          ]);
-        }
-        setIsLoadingDb(false);
-        return;
-      }
-
       try {
         const { count: profCount } = await supabase.from('profiles').select('*', { count: 'exact', head: true });
         const { count: taskCount } = await supabase.from('tasks').select('*', { count: 'exact', head: true });
